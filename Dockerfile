@@ -16,6 +16,7 @@ WORKDIR /app
 
 # Install Faster-Whisper and dependencies
 RUN pip3 install --no-cache-dir \
+    torch \
     faster-whisper \
     numpy \
     soundfile \
