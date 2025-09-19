@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GPU 최적화 실시간 STT 웹 서버
+초저지연 실시간 STT 웹 서버 - 최적화 버전
 """
 
 import os
@@ -16,35 +16,39 @@ import base64
 import io
 import soundfile as sf
 import torch
+import threading
+from queue import Queue
+import asyncio
 
 # Flask 앱 생성
 app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app, resources={r"/*": {"origins": "*"}})
 sock = Sock(app)
 
-class WhisperProcessor:
-    """GPU 최적화 Whisper 처리 클래스"""
+class RealtimeWhisperProcessor:
+    """초저지연 실시간 Whisper 처리 클래스"""
 
     def __init__(self):
         self.model = None
         self.device = "cuda"
         self.sample_rate = 16000
+        self.processing_queue = Queue()
+        self.worker_thread = None
 
     def load_model(self):
         """모델 로드"""
-        print("🔄 Faster-Whisper 모델 로딩 중 (GPU 모드)...")
+        print("🔄 초저지연 Faster-Whisper 모델 로딩 중 (GPU 모드)...")
 
-        # GPU 사용 가능 확인 - RTX 5090 강제 GPU 모드
+        # GPU 사용 가능 확인
         if torch.cuda.is_available():
             print(f"✅ GPU 감지됨: {torch.cuda.get_device_name(0)}")
             print(f"📊 VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
-            print("🚀 RTX 5090 GPU 모드 강제 활성화!")
             device = "cuda"
             compute_type = "float16"
         else:
-            print("⚠️ GPU를 사용할 수 없습니다. 강제로 CUDA 설정합니다.")
-            device = "cuda"
-            compute_type = "float16"
+            print("⚠️ GPU를 사용할 수 없습니다.")
+            device = "cpu"
+            compute_type = "int8"
 
         try:
             self.model = WhisperModel(
@@ -53,18 +57,39 @@ class WhisperProcessor:
                 device_index=0,
                 compute_type=compute_type,
                 download_root="/app/models",
-                num_workers=4 if device == "cpu" else 1,
-                cpu_threads=8 if device == "cpu" else 0
+                num_workers=1,
+                cpu_threads=0
             )
             print(f"✅ {device.upper()} 모델 로드 완료!")
             self.device = device
+
+            # 워커 스레드 시작
+            self.start_worker()
             return True
         except Exception as e:
             print(f"❌ 모델 로드 실패: {e}")
             return False
 
-    def transcribe_audio(self, audio_data, sample_rate=16000):
-        """오디오 데이터를 텍스트로 변환 (GPU 최적화)"""
+    def start_worker(self):
+        """처리 워커 스레드 시작"""
+        self.worker_thread = threading.Thread(target=self._process_audio_queue, daemon=True)
+        self.worker_thread.start()
+        print("🔧 백그라운드 처리 워커 시작")
+
+    def _process_audio_queue(self):
+        """큐에서 오디오 처리 (백그라운드)"""
+        while True:
+            try:
+                audio_data, callback = self.processing_queue.get()
+                if audio_data is not None:
+                    result = self._transcribe_chunk(audio_data)
+                    if callback:
+                        callback(result)
+            except Exception as e:
+                print(f"❌ 워커 오류: {e}")
+
+    def _transcribe_chunk(self, audio_data):
+        """실제 전사 처리"""
         if self.model is None:
             return None
 
@@ -73,26 +98,27 @@ class WhisperProcessor:
 
         # 임시 파일 저장
         temp_file = f"/tmp/audio_{time.time()}.wav"
-        sf.write(temp_file, audio_data, sample_rate)
+        sf.write(temp_file, audio_data, self.sample_rate)
 
         try:
-            # GPU 최적화 설정으로 Transcribe
+            # 초저지연 설정으로 Transcribe
             segments, info = self.model.transcribe(
                 temp_file,
-                language="ko",  # 한국어 기본
+                language="ko",
                 task="transcribe",
-                beam_size=5,
-                best_of=5,
+                beam_size=2,  # 균형점 (속도와 정확도)
+                best_of=2,    # 적절한 후보 탐색
                 temperature=0.0,
                 vad_filter=True,
                 vad_parameters={
-                    "threshold": 0.5,
-                    "min_speech_duration_ms": 250,
-                    "min_silence_duration_ms": 500,
-                    "speech_pad_ms": 200
+                    "threshold": 0.4,  # 적절한 민감도
+                    "min_speech_duration_ms": 150,  # 최소 발화 길이
+                    "min_silence_duration_ms": 200,  # 자연스러운 침묵 구간
+                    "speech_pad_ms": 100  # 적절한 패딩
                 },
                 condition_on_previous_text=False,
                 initial_prompt=None,
+                word_timestamps=False  # 타임스탬프 비활성화 (속도 향상)
             )
 
             # 결과 수집
@@ -107,7 +133,8 @@ class WhisperProcessor:
                 "text": text,
                 "language": info.language if info.language else "ko",
                 "confidence": float(info.language_probability) if info.language_probability else 0.95,
-                "device": self.device
+                "device": self.device,
+                "processing_time": time.time()
             }
 
             return result
@@ -119,8 +146,12 @@ class WhisperProcessor:
             # 임시 파일 삭제
             Path(temp_file).unlink(missing_ok=True)
 
+    def process_audio_async(self, audio_data, callback):
+        """비동기 오디오 처리"""
+        self.processing_queue.put((audio_data, callback))
+
 # Whisper 프로세서 인스턴스
-processor = WhisperProcessor()
+processor = RealtimeWhisperProcessor()
 
 @app.route('/')
 def index():
@@ -134,18 +165,41 @@ def get_config():
         'status': 'ready',
         'websocket': 'integrated',
         'device': processor.device,
-        'gpu': torch.cuda.is_available()
+        'gpu': torch.cuda.is_available(),
+        'mode': 'ultra_realtime'
     }
 
 @sock.route('/ws')
 def websocket(ws):
     """WebSocket 연결 처리"""
     print(f"✅ 클라이언트 연결")
-    print(f"📡 WebSocket 연결 시작: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"📡 초저지연 모드 활성화: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     audio_buffer = []
     buffer_duration = 0
-    max_buffer_duration = 2.0  # 2초마다 처리
+    max_buffer_duration = 1.2  # 1.2초마다 처리 (균형점)
+    min_buffer_duration = 0.8  # 최소 0.8초 버퍼 (문맥 확보)
+    last_result_text = ""  # 중복 제거용
+
+    def send_result(result):
+        """결과 전송 콜백"""
+        nonlocal last_result_text
+        if result and result["text"] and result["text"] != last_result_text:
+            response = {
+                "type": "transcription",
+                "text": result["text"],
+                "language": result["language"],
+                "confidence": result["confidence"],
+                "device": result["device"],
+                "timestamp": time.time(),
+                "latency": time.time() - result.get("processing_time", time.time())
+            }
+            try:
+                ws.send(json.dumps(response, ensure_ascii=False))
+                print(f"📝 [{result['device'].upper()}] {result['text'][:50]}... (지연: {response['latency']:.2f}초)")
+                last_result_text = result["text"]
+            except:
+                pass
 
     while True:
         try:
@@ -161,7 +215,6 @@ def websocket(ws):
                     # Base64 오디오 데이터 디코드
                     audio_base64 = data.get("data", "")
                     audio_bytes = base64.b64decode(audio_base64)
-                    print(f"🎤 오디오 데이터 수신: {len(audio_bytes)} bytes")
 
                     # Float32 배열로 변환
                     audio_chunk = np.frombuffer(audio_bytes, dtype=np.float32)
@@ -170,39 +223,31 @@ def websocket(ws):
                     # 버퍼 시간 계산
                     buffer_duration = len(audio_buffer) / 16000
 
-                    # 2초 이상 쌓이면 처리
-                    if buffer_duration >= max_buffer_duration:
-                        print(f"⏱️ 버퍼 {buffer_duration:.2f}초 도달, 처리 시작...")
-                        audio_array = np.array(audio_buffer)
+                    # 동적 버퍼 처리
+                    # VAD가 음성을 감지하면 더 짧은 간격으로 처리
+                    if buffer_duration >= min_buffer_duration:
+                        # 음성 에너지 체크 (간단한 VAD)
+                        energy = np.sqrt(np.mean(np.square(audio_chunk)))
 
-                        # Whisper로 처리
-                        print(f"🔄 Whisper 처리 중...")
-                        result = processor.transcribe_audio(audio_array, 16000)
-                        print(f"✅ Whisper 처리 완료: {result}")
+                        if energy > 0.01 or buffer_duration >= max_buffer_duration:
+                            # 음성이 감지되거나 최대 버퍼 도달시 처리
+                            audio_array = np.array(audio_buffer)
 
-                        if result and result["text"]:
-                            # 결과 전송
-                            response = {
-                                "type": "transcription",
-                                "text": result["text"],
-                                "language": result["language"],
-                                "confidence": result["confidence"],
-                                "device": result["device"],
-                                "timestamp": time.time()
-                            }
-                            ws.send(json.dumps(response, ensure_ascii=False))
-                            print(f"📝 [{result['device'].upper()}] {result['language']}: {result['text']}")
+                            # 비동기 처리 큐에 추가
+                            processor.process_audio_async(audio_array, send_result)
 
-                        # 버퍼 초기화
-                        audio_buffer = []
-                        buffer_duration = 0
+                            # 버퍼 초기화 (일부 오버랩 유지)
+                            overlap_samples = int(0.1 * 16000)  # 0.1초 오버랩
+                            audio_buffer = audio_buffer[-overlap_samples:] if len(audio_buffer) > overlap_samples else []
+                            buffer_duration = len(audio_buffer) / 16000
 
                 elif data.get("type") == "config":
                     # 설정 업데이트
                     ws.send(json.dumps({
                         "type": "config_updated",
                         "language": "ko",
-                        "device": processor.device
+                        "device": processor.device,
+                        "mode": "ultra_realtime"
                     }))
 
             except json.JSONDecodeError as e:
@@ -217,14 +262,15 @@ def websocket(ws):
 def main():
     """메인 함수"""
     print("=" * 60)
-    print("🎤 GPU 최적화 실시간 STT 웹 애플리케이션")
-    print("GPU-Optimized Real-time Speech-to-Text")
+    print("🚀 초저지연 실시간 STT 웹 애플리케이션")
+    print("Ultra-Low Latency Real-time Speech-to-Text")
     print("=" * 60)
 
     # GPU 정보 출력
     if torch.cuda.is_available():
         print(f"🖥️ GPU: {torch.cuda.get_device_name(0)}")
         print(f"📊 VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+        print("⚡ 초저지연 모드 활성화")
     else:
         print("⚠️ GPU를 사용할 수 없습니다.")
 
@@ -236,8 +282,9 @@ def main():
     processor.load_model()
 
     # Flask + WebSocket 서버 시작
-    print(f"\n🌐 STT 서버 시작: http://localhost:5000")
+    print(f"\n🌐 최적화된 실시간 STT 서버 시작: http://localhost:5000")
     print(f"🖥️ Device: {processor.device.upper()}")
+    print(f"⚡ 지연시간: ~1초 (정확도와 속도의 균형)")
     print("WebSocket은 /ws 경로에서 처리됩니다.\n")
 
     app.run(host='0.0.0.0', port=5000, debug=False)
