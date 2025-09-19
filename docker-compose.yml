@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  whisper:
+    build: .
+    container_name: whisper-large-v3
+    ports:
+      - "5000:5000"  # Flask 웹 서버 포트
+      - "8766:8766"  # WebSocket 서버 포트
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./models:/app/models
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - WHISPER_CACHE_DIR=/app/models
+      - CUDA_VISIBLE_DEVICES=0
+    # GPU support for NVIDIA
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
+    command: python test_faster_whisper.py

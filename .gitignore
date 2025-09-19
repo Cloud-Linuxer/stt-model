@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+
+# Docker
+*.log
+
+# Models (too large for git)
+models/
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+
+# Audio files
+*.wav
+*.mp3
+*.flac
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config files with sensitive data
+config.json
+
+# Test files
+test_*.py
+test_*.html

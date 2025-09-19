@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎤 실시간 STT - Cloudflare Tunnel</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="title">
+                <span class="title-icon">🎤</span>
+                실시간 음성 인식 (Cloudflare)
+            </h1>
+            <div class="status-indicator">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">연결 중...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- WebSocket URL Configuration -->
+        <div class="config-panel" style="background: var(--card-bg); padding: 1.5rem; border-radius: 1rem; margin-bottom: 2rem; border: 1px solid var(--border-color);">
+            <h3 style="margin-bottom: 1rem;">🌐 Cloudflare Tunnel 설정</h3>
+            <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 1rem;">
+                <input type="text" id="wsUrl" placeholder="wss://your-tunnel.trycloudflare.com"
+                       style="padding: 0.75rem; background: var(--dark-bg); color: white; border: 1px solid var(--border-color); border-radius: 0.5rem;">
+                <button onclick="connectWebSocket()"
+                        style="padding: 0.75rem 2rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 0.5rem; cursor: pointer;">
+                    연결
+                </button>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 0.875rem;">
+                💡 WebSocket 터널 URL을 입력하세요 (예: wss://your-tunnel.trycloudflare.com)
+            </p>
+        </div>
+
+        <div class="main-grid">
+            <!-- Control Panel -->
+            <div class="control-panel">
+                <h2 class="section-title">
+                    <span>🎛️</span> 제어판
+                </h2>
+
+                <!-- Recording Button -->
+                <button id="recordBtn" class="recording-btn start" disabled>
+                    <span id="recordIcon">🎙️</span>
+                    <span id="recordText">녹음 시작</span>
+                </button>
+
+                <!-- Audio Visualizer -->
+                <div class="audio-visualizer" id="visualizer">
+                    <div class="audio-bar" style="height: 20px;"></div>
+                    <div class="audio-bar" style="height: 35px;"></div>
+                    <div class="audio-bar" style="height: 25px;"></div>
+                    <div class="audio-bar" style="height: 40px;"></div>
+                    <div class="audio-bar" style="height: 30px;"></div>
+                    <div class="audio-bar" style="height: 45px;"></div>
+                    <div class="audio-bar" style="height: 35px;"></div>
+                    <div class="audio-bar" style="height: 25px;"></div>
+                    <div class="audio-bar" style="height: 30px;"></div>
+                    <div class="audio-bar" style="height: 20px;"></div>
+                </div>
+
+                <!-- Language Selection -->
+                <div class="control-group">
+                    <label for="language">인식 언어</label>
+                    <select id="language">
+                        <option value="auto">🌐 자동 감지</option>
+                        <option value="ko">🇰🇷 한국어</option>
+                        <option value="en">🇺🇸 영어</option>
+                        <option value="ja">🇯🇵 일본어</option>
+                        <option value="zh">🇨🇳 중국어</option>
+                    </select>
+                </div>
+
+                <!-- Statistics -->
+                <h3 class="section-title" style="margin-top: 2rem;">
+                    <span>📊</span> 통계
+                </h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">단어 수</div>
+                        <div class="stat-value" id="wordCount">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">세션 시간</div>
+                        <div class="stat-value" id="sessionTime">0:00</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">신뢰도</div>
+                        <div class="stat-value" id="avgConfidence">-%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">감지 언어</div>
+                        <div class="stat-value" id="detectedLang">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transcription Area -->
+            <div class="transcription-area">
+                <div class="transcription-header">
+                    <h2 class="section-title">
+                        <span>📝</span> 인식 결과
+                    </h2>
+                    <button class="export-btn" onclick="exportTranscription()">
+                        <span>💾</span> 내보내기
+                    </button>
+                </div>
+                <div class="transcription-content" id="transcriptionContent">
+                    <div class="empty-state">
+                        <div class="empty-icon">🎤</div>
+                        <p>녹음 버튼을 눌러 음성 인식을 시작하세요</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Features -->
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🚀</div>
+                <h3 class="feature-title">실시간 처리</h3>
+                <p class="feature-description">WebSocket 스트리밍으로 낮은 지연시간 실현</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🌏</div>
+                <h3 class="feature-title">다국어 지원</h3>
+                <p class="feature-description">한국어, 영어, 일본어, 중국어 자동 감지</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+                <h3 class="feature-title">GPU 가속</h3>
+                <p class="feature-description">Faster-Whisper로 빠른 처리 속도</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔒</div>
+                <h3 class="feature-title">보안 연결</h3>
+                <p class="feature-description">Cloudflare Tunnel을 통한 안전한 HTTPS/WSS</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <p>Powered by Whisper Large v3 & Faster-Whisper</p>
+            <div class="tech-stack">
+                <span class="tech-badge">Cloudflare Tunnel</span>
+                <span class="tech-badge">WebSocket</span>
+                <span class="tech-badge">Flask</span>
+                <span class="tech-badge">CTranslate2</span>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        let ws = null;
+        let mediaRecorder = null;
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let isRecording = false;
+        let sessionStartTime = null;
+        let wordCount = 0;
+        let totalConfidence = 0;
+        let confidenceCount = 0;
+        let transcriptionHistory = [];
+
+        // WebSocket 연결
+        function connectWebSocket() {
+            const wsUrlInput = document.getElementById('wsUrl');
+            const wsUrl = wsUrlInput.value.trim();
+
+            if (!wsUrl) {
+                showToast('WebSocket URL을 입력하세요', 'error');
+                return;
+            }
+
+            // 기존 연결 종료
+            if (ws) {
+                ws.close();
+            }
+
+            // URL 포맷 확인 및 수정
+            let finalUrl = wsUrl;
+            if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
+                // Cloudflare Tunnel은 HTTPS이므로 WSS 사용
+                finalUrl = 'wss://' + wsUrl;
+            }
+
+            console.log('Connecting to:', finalUrl);
+            updateStatus('연결 중...', false);
+
+            try {
+                ws = new WebSocket(finalUrl);
+
+                ws.onopen = () => {
+                    console.log('WebSocket connected');
+                    updateStatus('연결됨', true);
+                    document.getElementById('recordBtn').disabled = false;
+
+                    // 언어 설정 전송
+                    const language = document.getElementById('language').value;
+                    ws.send(JSON.stringify({
+                        type: 'config',
+                        language: language
+                    }));
+
+                    showToast('WebSocket 연결 성공!', 'success');
+                };
+
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'transcription') {
+                        addTranscription(data);
+                        updateStats(data);
+                    } else if (data.type === 'config_updated') {
+                        console.log('Config updated:', data);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    updateStatus('연결 오류', false);
+                    showToast('WebSocket 연결 오류', 'error');
+                };
+
+                ws.onclose = () => {
+                    console.log('WebSocket disconnected');
+                    updateStatus('연결 끊김', false);
+                    document.getElementById('recordBtn').disabled = true;
+                    if (isRecording) {
+                        stopRecording();
+                    }
+                };
+            } catch (error) {
+                console.error('WebSocket connection error:', error);
+                showToast('연결 실패: ' + error.message, 'error');
+            }
+        }
+
+        // 상태 업데이트
+        function updateStatus(text, connected) {
+            document.getElementById('statusText').textContent = text;
+            const dot = document.getElementById('statusDot');
+            if (connected) {
+                dot.classList.remove('disconnected');
+            } else {
+                dot.classList.add('disconnected');
+            }
+        }
+
+        // 녹음 시작/중지
+        document.getElementById('recordBtn').addEventListener('click', async () => {
+            if (!isRecording) {
+                await startRecording();
+            } else {
+                stopRecording();
+            }
+        });
+
+        // 녹음 시작
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        sampleSize: 16,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+
+                // Audio Context 설정
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                microphone = audioContext.createMediaStreamSource(stream);
+
+                const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+
+                microphone.connect(analyser);
+                analyser.connect(scriptProcessor);
+                scriptProcessor.connect(audioContext.destination);
+
+                // 오디오 시각화
+                visualizeAudio();
+
+                // 오디오 데이터 처리
+                scriptProcessor.onaudioprocess = (event) => {
+                    if (!isRecording) return;
+
+                    const audioData = event.inputBuffer.getChannelData(0);
+
+                    // Float32Array를 Base64로 인코딩
+                    const bytes = new Float32Array(audioData);
+                    const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(bytes.buffer)));
+
+                    // WebSocket으로 전송
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'audio',
+                            data: base64,
+                            sampleRate: audioContext.sampleRate
+                        }));
+                    }
+                };
+
+                isRecording = true;
+                sessionStartTime = Date.now();
+                updateRecordButton(true);
+                updateSessionTime();
+
+                // 세션 시간 업데이트
+                setInterval(updateSessionTime, 1000);
+
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                alert('마이크 접근 권한이 필요합니다.');
+            }
+        }
+
+        // 녹음 중지
+        function stopRecording() {
+            isRecording = false;
+
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+
+            updateRecordButton(false);
+        }
+
+        // 버튼 업데이트
+        function updateRecordButton(recording) {
+            const btn = document.getElementById('recordBtn');
+            const icon = document.getElementById('recordIcon');
+            const text = document.getElementById('recordText');
+
+            if (recording) {
+                btn.classList.remove('start');
+                btn.classList.add('stop');
+                icon.textContent = '⏹️';
+                text.textContent = '녹음 중지';
+            } else {
+                btn.classList.remove('stop');
+                btn.classList.add('start');
+                icon.textContent = '🎙️';
+                text.textContent = '녹음 시작';
+            }
+        }
+
+        // 오디오 시각화
+        function visualizeAudio() {
+            if (!analyser) return;
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function draw() {
+                if (!isRecording) return;
+
+                requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
+
+                const bars = document.querySelectorAll('.audio-bar');
+                bars.forEach((bar, index) => {
+                    const value = dataArray[index * 10] || 0;
+                    const height = Math.max(10, (value / 255) * 60);
+                    bar.style.height = `${height}px`;
+                });
+            }
+
+            draw();
+        }
+
+        // 전사 결과 추가
+        function addTranscription(data) {
+            const content = document.getElementById('transcriptionContent');
+
+            // 빈 상태 제거
+            const emptyState = content.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            // 새 세그먼트 추가
+            const segment = document.createElement('div');
+            segment.className = 'transcription-segment';
+
+            const time = new Date(data.timestamp * 1000);
+            const timeStr = time.toLocaleTimeString('ko-KR');
+
+            segment.innerHTML = `
+                <div class="segment-meta">
+                    <span class="timestamp">${timeStr}</span>
+                    <span class="language-badge">${data.language.toUpperCase()}</span>
+                    <span class="confidence">${(data.confidence * 100).toFixed(1)}%</span>
+                </div>
+                <div class="segment-text">${data.text}</div>
+            `;
+
+            content.appendChild(segment);
+            content.scrollTop = content.scrollHeight;
+
+            // 히스토리에 추가
+            transcriptionHistory.push({
+                time: timeStr,
+                language: data.language,
+                confidence: data.confidence,
+                text: data.text
+            });
+        }
+
+        // 통계 업데이트
+        function updateStats(data) {
+            // 단어 수
+            const words = data.text.split(/\s+/).filter(w => w.length > 0);
+            wordCount += words.length;
+            document.getElementById('wordCount').textContent = wordCount;
+
+            // 평균 신뢰도
+            totalConfidence += data.confidence;
+            confidenceCount++;
+            const avgConfidence = (totalConfidence / confidenceCount * 100).toFixed(1);
+            document.getElementById('avgConfidence').textContent = `${avgConfidence}%`;
+
+            // 감지 언어
+            document.getElementById('detectedLang').textContent = data.language.toUpperCase();
+        }
+
+        // 세션 시간 업데이트
+        function updateSessionTime() {
+            if (!sessionStartTime) return;
+
+            const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+
+            document.getElementById('sessionTime').textContent =
+                `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        // 언어 변경
+        document.getElementById('language').addEventListener('change', (e) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'config',
+                    language: e.target.value
+                }));
+            }
+        });
+
+        // 내보내기
+        function exportTranscription() {
+            if (transcriptionHistory.length === 0) {
+                alert('내보낼 내용이 없습니다.');
+                return;
+            }
+
+            let text = '=== 음성 인식 결과 ===\n\n';
+            transcriptionHistory.forEach(item => {
+                text += `[${item.time}] (${item.language.toUpperCase()}, ${(item.confidence * 100).toFixed(1)}%)\n`;
+                text += `${item.text}\n\n`;
+            });
+
+            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `transcription_${new Date().toISOString().slice(0, 10)}.txt`;
+            a.click();
+        }
+
+        // Toast 알림
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.animation = 'slideOutRight 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // 페이지 로드 시 자동 연결 시도 (로컬 테스트용)
+        window.addEventListener('load', () => {
+            // 로컬 환경에서는 자동 연결
+            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                document.getElementById('wsUrl').value = 'ws://localhost:8766';
+                // connectWebSocket(); // 자동 연결 원하면 주석 해제
+            }
+        });
+    </script>
+</body>
+</html>

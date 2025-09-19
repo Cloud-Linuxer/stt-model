@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>실시간 STT</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 10px;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff4444;
+        }
+        .status-dot.connected {
+            background: #44ff44;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .controls {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .record-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 50px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .record-btn:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        .record-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .record-btn.recording {
+            background: #ff4444;
+            animation: recording 1s infinite;
+        }
+        @keyframes recording {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .result-container {
+            margin-top: 30px;
+        }
+        .result-box {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            padding: 20px;
+            min-height: 150px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .result-item {
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .language {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-right: 10px;
+        }
+        .settings {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        select {
+            padding: 8px 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 실시간 음성 인식</h1>
+
+        <div class="status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">연결 중...</span>
+        </div>
+
+        <div class="settings">
+            <label for="language">언어 설정: </label>
+            <select id="language">
+                <option value="auto">자동 감지</option>
+                <option value="ko">한국어</option>
+                <option value="en">영어</option>
+                <option value="ja">일본어</option>
+                <option value="zh">중국어</option>
+            </select>
+        </div>
+
+        <div class="controls">
+            <button id="recordBtn" class="record-btn" disabled>
+                녹음 시작
+            </button>
+        </div>
+
+        <div class="result-container">
+            <h3>인식 결과:</h3>
+            <div id="resultBox" class="result-box">
+                <div style="color: #999; text-align: center;">
+                    녹음 버튼을 눌러 시작하세요
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isRecording = false;
+        let mediaRecorder = null;
+        let audioContext = null;
+        let processor = null;
+        let source = null;
+        let stream = null;
+
+        const recordBtn = document.getElementById('recordBtn');
+        const resultBox = document.getElementById('resultBox');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const languageSelect = document.getElementById('language');
+
+        // WebSocket 연결을 동일 도메인으로 변경
+        async function connectWebSocket() {
+            try {
+                // 현재 도메인에서 WebSocket 연결
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+                console.log('Connecting to WebSocket:', wsUrl);
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    console.log('✅ WebSocket 연결됨');
+                    statusDot.classList.add('connected');
+                    statusText.textContent = '연결됨';
+                    recordBtn.disabled = false;
+                    sendConfig();
+                };
+
+                ws.onclose = () => {
+                    console.log('❌ WebSocket 연결 종료');
+                    statusDot.classList.remove('connected');
+                    statusText.textContent = '연결 끊김';
+                    recordBtn.disabled = true;
+                    setTimeout(connectWebSocket, 3000);
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket 오류:', error);
+                };
+
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'transcription') {
+                        addResult(data.text, data.language, data.confidence);
+                    }
+                };
+            } catch (error) {
+                console.error('WebSocket 연결 실패:', error);
+                setTimeout(connectWebSocket, 3000);
+            }
+        }
+
+        function sendConfig() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'config',
+                    language: languageSelect.value
+                }));
+            }
+        }
+
+        function addResult(text, language, confidence) {
+            if (!text || text.trim() === '') return;
+
+            const item = document.createElement('div');
+            item.className = 'result-item';
+            item.innerHTML = `
+                <span class="language">${language.toUpperCase()}</span>
+                <span>${text}</span>
+                <span style="color: #999; font-size: 12px; float: right;">
+                    ${(confidence * 100).toFixed(1)}%
+                </span>
+            `;
+
+            if (resultBox.children.length === 1 &&
+                resultBox.children[0].style.color === '#999') {
+                resultBox.innerHTML = '';
+            }
+
+            resultBox.appendChild(item);
+            resultBox.scrollTop = resultBox.scrollHeight;
+        }
+
+        async function startRecording() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        sampleSize: 16,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 16000
+                });
+
+                source = audioContext.createMediaStreamSource(stream);
+                processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+                let audioBuffer = [];
+                let lastSendTime = Date.now();
+
+                processor.onaudioprocess = (e) => {
+                    if (!isRecording) return;
+
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    audioBuffer.push(...inputData);
+
+                    // 0.5초마다 오디오 전송
+                    if (Date.now() - lastSendTime > 500) {
+                        if (audioBuffer.length > 0 && ws && ws.readyState === WebSocket.OPEN) {
+                            const audioData = new Float32Array(audioBuffer);
+                            const base64 = btoa(String.fromCharCode(...new Uint8Array(audioData.buffer)));
+
+                            ws.send(JSON.stringify({
+                                type: 'audio',
+                                data: base64,
+                                sampleRate: audioContext.sampleRate
+                            }));
+
+                            audioBuffer = [];
+                            lastSendTime = Date.now();
+                        }
+                    }
+                };
+
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+
+                isRecording = true;
+                recordBtn.textContent = '녹음 중지';
+                recordBtn.classList.add('recording');
+
+            } catch (error) {
+                console.error('마이크 접근 오류:', error);
+                alert('마이크를 사용할 수 없습니다.');
+            }
+        }
+
+        function stopRecording() {
+            isRecording = false;
+            recordBtn.textContent = '녹음 시작';
+            recordBtn.classList.remove('recording');
+
+            if (processor) {
+                processor.disconnect();
+                processor = null;
+            }
+            if (source) {
+                source.disconnect();
+                source = null;
+            }
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+        }
+
+        recordBtn.addEventListener('click', () => {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        });
+
+        languageSelect.addEventListener('change', sendConfig);
+
+        // WebSocket 연결 시작
+        connectWebSocket();
+    </script>
+</body>
+</html>
