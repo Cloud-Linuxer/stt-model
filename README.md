@@ -41,11 +41,16 @@
 - **STT 서버**: Whisper Medium 모델 (GPU 가속)
 - **vLLM 서버**: Qwen2.5-7B (50% GPU 메모리)
 - **웹 서버**: Flask + WebSocket
+- **임베딩 서비스**: BGE-M3 다국어 임베딩 모델
+- **벡터 DB**: Qdrant (1024차원 벡터 저장)
+- **RAG 오케스트레이터**: FastAPI 기반 RAG 파이프라인
+- **캐시**: Redis (TTL 1시간)
 
 ### GPU 메모리 사용 (RTX 5090 32GB 기준)
 - Whisper Medium: ~5GB
 - vLLM (Qwen2.5-7B): ~13GB
-- **총 사용량**: ~18GB
+- BGE-M3 임베딩: ~3GB
+- **총 사용량**: ~21GB
 
 ## 📁 디렉토리 구조
 ```
@@ -260,12 +265,164 @@ docker ps | grep healthy
 - `POST http://localhost:8000/v1/completions`: LLM 추론
 - `GET http://localhost:8000/v1/models`: 모델 정보
 
+## 🔗 RAG (Retrieval-Augmented Generation) 시스템
+
+### RAG 아키텍처
+```
+음성 → STT → 텍스트 → 키워드 추출 → 쿼리 확장 → 임베딩
+   ↓
+벡터 검색 (Qdrant) → Top-K 문서 → 재순위화
+   ↓
+컨텍스트 + 쿼리 → vLLM → 증강된 응답 → 사용자
+```
+
+### RAG 파이프라인 상세
+
+#### 1. 임베딩 서비스 (Port: 8002)
+- **모델**: BAAI/bge-m3 (다국어 지원)
+- **차원**: 1024
+- **배치 크기**: 32
+- **최대 길이**: 8192 토큰
+- **엔드포인트**:
+  - `POST /embed`: 단일 텍스트 임베딩
+  - `POST /embed/batch`: 배치 임베딩 처리
+  - `GET /health`: 서비스 상태 확인
+
+#### 2. 벡터 데이터베이스 (Qdrant - Ports: 6333/6334)
+- **컬렉션**: documents
+- **벡터 차원**: 1024
+- **거리 메트릭**: Cosine
+- **페이로드**: 텍스트, 메타데이터, 소스 정보
+- **대시보드**: http://localhost:6333/dashboard
+
+#### 3. RAG 오케스트레이터 (Port: 8003)
+- **프레임워크**: FastAPI
+- **주요 기능**:
+  - 쿼리 확장 (Query Expansion)
+  - 하이브리드 검색 (Dense + Sparse)
+  - 재순위화 (Reranking)
+  - 컨텍스트 증강 생성
+- **설정값**:
+  - TOP_K_RETRIEVAL: 10
+  - TOP_K_RERANK: 5
+  - MAX_CONTEXT_LENGTH: 2048
+
+### RAG 데이터 플로우
+
+#### 단계별 처리 과정
+1. **쿼리 확장**: 키워드를 관련 용어로 확장
+2. **임베딩 생성**: BGE-M3로 쿼리 벡터 생성
+3. **벡터 검색**: Qdrant에서 유사 문서 검색
+4. **재순위화**: 관련성 점수 기반 재정렬
+5. **컨텍스트 구성**: 상위 문서로 컨텍스트 생성
+6. **응답 생성**: vLLM으로 최종 응답 생성
+
+### Redis 캐싱 전략
+- **쿼리 캐시**: 자주 묻는 질문 (TTL: 1시간)
+- **임베딩 캐시**: 계산된 벡터 (TTL: 24시간)
+- **세션 관리**: 다중 턴 대화 컨텍스트
+
+### RAG 서비스 시작
+```bash
+# RAG 관련 서비스만 시작
+docker-compose --profile rag up -d
+
+# 개별 서비스 시작
+docker start qdrant
+docker start embedding-service
+docker start rag-orchestrator
+docker start redis
+```
+
+### RAG API 엔드포인트
+
+#### 임베딩 서비스
+```bash
+# 텍스트 임베딩 생성
+curl -X POST http://localhost:8002/embed \
+  -H "Content-Type: application/json" \
+  -d '{"text": "인공지능 기술의 발전"}'
+
+# 배치 임베딩
+curl -X POST http://localhost:8002/embed/batch \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["텍스트1", "텍스트2"]}'
+```
+
+#### RAG 오케스트레이터
+```bash
+# RAG 쿼리 처리
+curl -X POST http://localhost:8003/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "인공지능이란 무엇인가요?",
+    "keywords": ["인공지능", "AI", "기계학습"]
+  }'
+
+# 벡터 검색
+curl -X POST http://localhost:8003/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "딥러닝", "top_k": 5}'
+```
+
+### 문서 인덱싱
+```bash
+# 문서를 벡터 DB에 추가
+curl -X POST http://localhost:8003/index \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "문서 내용...",
+    "metadata": {
+      "source": "document.pdf",
+      "page": 1,
+      "date": "2024-01-01"
+    }
+  }'
+```
+
+### RAG 성능 메트릭
+- **임베딩 생성**: ~50ms/텍스트
+- **벡터 검색**: ~100ms (10K 문서 기준)
+- **재순위화**: ~30ms
+- **전체 RAG 응답**: <2초
+
+### RAG 트러블슈팅
+
+#### Qdrant Unhealthy 상태
+```bash
+# Qdrant 상태 확인
+docker logs qdrant --tail 50
+
+# Qdrant 재시작
+docker restart qdrant
+
+# 데이터 볼륨 확인
+docker volume ls | grep qdrant
+```
+
+#### 임베딩 서비스 메모리 부족
+```bash
+# GPU 메모리 확인
+nvidia-smi
+
+# 배치 크기 조정 (환경변수)
+docker run -e BATCH_SIZE=16 embedding-service
+```
+
+#### RAG 응답 지연
+1. Redis 캐시 상태 확인
+2. Qdrant 인덱스 최적화
+3. TOP_K 값 조정
+
 ## 🔑 주요 기술
 
 - **Faster-Whisper**: CTranslate2 기반 최적화된 Whisper
 - **vLLM**: PagedAttention으로 고속 LLM 서빙
 - **WebSocket**: 실시간 양방향 통신
 - **VAD**: 실시간 음성 구간 감지
+- **BGE-M3**: 다국어 임베딩 모델
+- **Qdrant**: 고성능 벡터 데이터베이스
+- **Redis**: 인메모리 캐싱
 - **Docker**: 컨테이너 기반 배포
 
 ## 📄 라이센스
