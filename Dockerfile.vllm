@@ -1,0 +1,48 @@
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+
+# Install Python and system dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create symbolic link for python
+RUN ln -s /usr/bin/python3.10 /usr/bin/python
+
+WORKDIR /app
+
+# Install PyTorch and vLLM dependencies
+RUN pip3 install --no-cache-dir \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# Install vLLM and dependencies
+RUN pip3 install --no-cache-dir \
+    vllm \
+    transformers \
+    accelerate \
+    sentencepiece \
+    protobuf \
+    fastapi \
+    uvicorn
+
+# Create model directory
+RUN mkdir -p /app/models
+
+# Set environment variables
+ENV CUDA_VISIBLE_DEVICES=0
+ENV HF_HOME=/app/models
+ENV TRANSFORMERS_CACHE=/app/models
+
+# Default command to run vLLM server
+CMD ["python", "-m", "vllm.entrypoints.openai.api_server", \
+     "--model", "Qwen/Qwen2.5-7B-Instruct", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--max-model-len", "224", \
+     "--gpu-memory-utilization", "0.5", \
+     "--dtype", "float16", \
+     "--enforce-eager", \
+     "--disable-custom-all-reduce", \
+     "--trust-remote-code"]

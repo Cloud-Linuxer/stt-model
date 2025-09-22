@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>실시간 STT + AI 키워드 추출</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            display: flex;
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .status-item {
+            background: #f0f0f0;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+
+        .status-item.active {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .transcription-panel {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .keywords-panel {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .panel-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        #recordButton {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 30px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+        }
+
+        #recordButton:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        }
+
+        #recordButton.recording {
+            background: linear-gradient(135deg, #f56565, #d53f8c);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        #transcriptionText {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 16px;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .keywords-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            min-height: 200px;
+        }
+
+        .keyword-card {
+            background: white;
+            border-radius: 12px;
+            padding: 12px 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            animation: fadeIn 0.5s ease;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .keyword-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+        }
+
+        .keyword-card.high-importance {
+            border-left: 4px solid #ff4444;
+            background: linear-gradient(90deg, rgba(255,68,68,0.1) 0%, white 100%);
+        }
+
+        .keyword-card.medium-importance {
+            border-left: 4px solid #ffaa00;
+            background: linear-gradient(90deg, rgba(255,170,0,0.1) 0%, white 100%);
+        }
+
+        .keyword-card.low-importance {
+            border-left: 4px solid #888888;
+            background: linear-gradient(90deg, rgba(136,136,136,0.1) 0%, white 100%);
+        }
+
+        .keyword-text {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .keyword-category {
+            font-size: 12px;
+            color: #666;
+            background: #f0f0f0;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        .keyword-importance {
+            font-size: 11px;
+            color: #999;
+        }
+
+        .audio-visualizer {
+            width: 100%;
+            height: 60px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            padding: 10px;
+        }
+
+        .audio-bar {
+            width: 4px;
+            background: #667eea;
+            border-radius: 2px;
+            transition: height 0.1s ease;
+        }
+
+        .no-keywords {
+            color: #999;
+            font-style: italic;
+            text-align: center;
+            padding: 40px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 실시간 STT + 🤖 AI 키워드 추출</h1>
+            <div class="status">
+                <div class="status-item" id="wsStatus">연결 대기중...</div>
+                <div class="status-item" id="deviceStatus">GPU 대기중...</div>
+                <div class="status-item" id="llmStatus">LLM 대기중...</div>
+            </div>
+            <button id="recordButton">🎤 녹음 시작</button>
+            <div class="audio-visualizer" id="audioVisualizer"></div>
+        </div>
+
+        <div class="main-content">
+            <div class="transcription-panel">
+                <h2 class="panel-title">📝 음성 인식 결과</h2>
+                <div id="transcriptionText">녹음 버튼을 눌러 시작하세요...</div>
+            </div>
+
+            <div class="keywords-panel">
+                <h2 class="panel-title">🔑 AI 추출 키워드</h2>
+                <div class="keywords-container" id="keywordsContainer">
+                    <div class="no-keywords">키워드가 여기에 표시됩니다</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isRecording = false;
+        let audioContext = null;
+        let mediaRecorder = null;
+        let audioWorkletNode = null;
+        let source = null;
+        let websocket = null;
+
+        const recordButton = document.getElementById('recordButton');
+        const transcriptionText = document.getElementById('transcriptionText');
+        const keywordsContainer = document.getElementById('keywordsContainer');
+        const wsStatus = document.getElementById('wsStatus');
+        const deviceStatus = document.getElementById('deviceStatus');
+        const llmStatus = document.getElementById('llmStatus');
+        const audioVisualizer = document.getElementById('audioVisualizer');
+
+        // 오디오 시각화 바 생성
+        for (let i = 0; i < 20; i++) {
+            const bar = document.createElement('div');
+            bar.className = 'audio-bar';
+            bar.style.height = '5px';
+            audioVisualizer.appendChild(bar);
+        }
+
+        // WebSocket 연결
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            const wsUrl = `${protocol}://${window.location.host}/ws`;
+
+            websocket = new WebSocket(wsUrl);
+
+            websocket.onopen = () => {
+                console.log('WebSocket 연결됨');
+                wsStatus.textContent = '✅ 연결됨';
+                wsStatus.classList.add('active');
+
+                websocket.send(JSON.stringify({
+                    type: 'config',
+                    language: 'ko'
+                }));
+            };
+
+            websocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'transcription') {
+                    // 텍스트 표시
+                    if (data.text) {
+                        transcriptionText.textContent = data.text;
+                    }
+
+                    // 키워드 카드 표시
+                    if (data.keywords && data.keywords.length > 0) {
+                        displayKeywords(data.keywords);
+                        llmStatus.textContent = '✅ LLM 활성';
+                        llmStatus.classList.add('active');
+                    }
+
+                    // 디바이스 상태
+                    if (data.device === 'cuda') {
+                        deviceStatus.textContent = '✅ GPU 활성';
+                        deviceStatus.classList.add('active');
+                    }
+                } else if (data.type === 'config_updated') {
+                    console.log('설정 업데이트:', data);
+                }
+            };
+
+            websocket.onerror = (error) => {
+                console.error('WebSocket 오류:', error);
+                wsStatus.textContent = '❌ 연결 오류';
+                wsStatus.classList.remove('active');
+            };
+
+            websocket.onclose = () => {
+                wsStatus.textContent = '❌ 연결 끊김';
+                wsStatus.classList.remove('active');
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        // 키워드 카드 표시
+        function displayKeywords(keywords) {
+            keywordsContainer.innerHTML = '';
+
+            if (keywords.length === 0) {
+                keywordsContainer.innerHTML = '<div class="no-keywords">추출된 키워드가 없습니다</div>';
+                return;
+            }
+
+            keywords.forEach(keyword => {
+                const card = document.createElement('div');
+                card.className = 'keyword-card';
+
+                // 중요도에 따른 클래스
+                if (keyword.importance >= 0.8) {
+                    card.classList.add('high-importance');
+                } else if (keyword.importance >= 0.6) {
+                    card.classList.add('medium-importance');
+                } else {
+                    card.classList.add('low-importance');
+                }
+
+                card.innerHTML = `
+                    <div class="keyword-text">${keyword.word}</div>
+                    <div class="keyword-category">${keyword.category || '기타'}</div>
+                    <div class="keyword-importance">중요도: ${(keyword.importance * 100).toFixed(0)}%</div>
+                `;
+
+                keywordsContainer.appendChild(card);
+            });
+        }
+
+        // 오디오 시각화
+        function visualizeAudio(dataArray) {
+            const bars = audioVisualizer.querySelectorAll('.audio-bar');
+            const step = Math.floor(dataArray.length / bars.length);
+
+            bars.forEach((bar, i) => {
+                const value = dataArray[i * step] || 0;
+                const height = Math.max(5, (value / 255) * 40);
+                bar.style.height = `${height}px`;
+            });
+        }
+
+        // 녹음 시작/중지
+        async function toggleRecording() {
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            channelCount: 1,
+                            sampleRate: 16000,
+                            sampleSize: 16,
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+
+                    audioContext = new AudioContext({ sampleRate: 16000 });
+                    source = audioContext.createMediaStreamSource(stream);
+
+                    // 오디오 프로세서 설정
+                    await audioContext.audioWorklet.addModule('data:text/javascript;base64,' +
+                        btoa(`
+                            class AudioProcessor extends AudioWorkletProcessor {
+                                constructor() {
+                                    super();
+                                    this.bufferSize = 2048;
+                                    this.buffer = [];
+                                }
+
+                                process(inputs, outputs, parameters) {
+                                    const input = inputs[0];
+                                    if (input && input[0]) {
+                                        const inputData = input[0];
+
+                                        for (let i = 0; i < inputData.length; i++) {
+                                            this.buffer.push(inputData[i]);
+                                        }
+
+                                        if (this.buffer.length >= this.bufferSize) {
+                                            this.port.postMessage({
+                                                type: 'audio',
+                                                data: this.buffer.slice(0, this.bufferSize)
+                                            });
+                                            this.buffer = this.buffer.slice(this.bufferSize);
+                                        }
+                                    }
+                                    return true;
+                                }
+                            }
+                            registerProcessor('audio-processor', AudioProcessor);
+                        `)
+                    );
+
+                    audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+
+                    // 오디오 분석기
+                    const analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 256;
+                    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                    source.connect(analyser);
+                    source.connect(audioWorkletNode);
+
+                    // 시각화
+                    const visualize = () => {
+                        if (isRecording) {
+                            analyser.getByteFrequencyData(dataArray);
+                            visualizeAudio(dataArray);
+                            requestAnimationFrame(visualize);
+                        }
+                    };
+                    visualize();
+
+                    audioWorkletNode.port.onmessage = (event) => {
+                        if (event.data.type === 'audio' && websocket && websocket.readyState === WebSocket.OPEN) {
+                            const float32Array = new Float32Array(event.data.data);
+                            const base64 = btoa(String.fromCharCode(...new Uint8Array(float32Array.buffer)));
+
+                            websocket.send(JSON.stringify({
+                                type: 'audio',
+                                data: base64
+                            }));
+                        }
+                    };
+
+                    isRecording = true;
+                    recordButton.textContent = '⏹️ 녹음 중지';
+                    recordButton.classList.add('recording');
+                    transcriptionText.textContent = '음성 인식 중...';
+
+                } catch (error) {
+                    console.error('마이크 접근 오류:', error);
+                    alert('마이크 접근 권한이 필요합니다.');
+                }
+            } else {
+                if (audioContext) {
+                    audioContext.close();
+                }
+                if (source) {
+                    source.disconnect();
+                }
+                if (audioWorkletNode) {
+                    audioWorkletNode.disconnect();
+                }
+
+                isRecording = false;
+                recordButton.textContent = '🎤 녹음 시작';
+                recordButton.classList.remove('recording');
+
+                // 시각화 초기화
+                const bars = audioVisualizer.querySelectorAll('.audio-bar');
+                bars.forEach(bar => bar.style.height = '5px');
+            }
+        }
+
+        recordButton.addEventListener('click', toggleRecording);
+
+        // API 상태 확인
+        fetch('/api/config')
+            .then(response => response.json())
+            .then(data => {
+                if (data.gpu) {
+                    deviceStatus.textContent = '✅ GPU 준비';
+                    deviceStatus.classList.add('active');
+                }
+                if (data.llm_enabled) {
+                    llmStatus.textContent = '✅ LLM 준비';
+                    llmStatus.classList.add('active');
+                }
+            });
+
+        // WebSocket 연결 시작
+        connectWebSocket();
+    </script>
+</body>
+</html>
