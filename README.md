@@ -130,20 +130,120 @@ docker logs stt-streaming --tail 50
 
 ## 🛠️ 트러블슈팅
 
-### GPU 메모리 부족
+### 🔧 일반적인 문제 해결
+
+#### GPU 메모리 부족
 1. Whisper 모델 크기 줄이기 (large → medium → small)
 2. vLLM gpu-memory-utilization 값 낮추기
 3. max-model-len 값 줄이기
 
-### WebSocket 연결 실패
+#### WebSocket 연결 실패
 1. 방화벽 설정 확인
 2. 포트 5000이 열려있는지 확인
 3. Docker 네트워크 설정 확인
 
-### 할루시네이션 발생
+#### 할루시네이션 발생
 1. temperature 값 낮추기 (0.0 권장)
 2. 할루시네이션 패턴 추가
 3. VAD 파라미터 조정
+
+### 🚨 CUDNN 경고 및 서비스 복원
+
+#### 문제 상황
+- CUDNN 라이브러리 경고 메시지 발생
+- STT 서비스 중단 또는 불안정
+- WebSocket 연결 끊김 현상
+
+#### 해결 방법
+
+##### 1. 기존 작동 이미지로 복원
+```bash
+# 현재 STT 컨테이너 정리
+docker stop $(docker ps -q --filter "name=stt") 2>/dev/null || true
+docker rm $(docker ps -aq --filter "name=stt") 2>/dev/null || true
+
+# 네트워크 생성 (없는 경우)
+docker network create stt-network 2>/dev/null || true
+
+# 원래 작동했던 STT 이미지로 복원
+docker run -d \
+    --name stt-streaming \
+    --gpus all \
+    -p 5000:5000 \
+    -v /app/models:/app/models \
+    -e VLLM_API_URL=http://vllm-server:8000/v1/completions \
+    --network stt-network \
+    stt-model-stt-streaming:latest
+```
+
+##### 2. 시스템 상태 확인
+```bash
+# 컨테이너 상태 확인
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(vllm|stt|embedding)"
+
+# STT 서비스 로그 확인
+docker logs stt-streaming --tail 20
+
+# GPU 상태 확인
+nvidia-smi --query-gpu=name,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+```
+
+##### 3. 서비스 동작 확인
+```bash
+# 설정 정보 확인
+curl -s http://localhost:5000/api/config | jq
+
+# 웹 인터페이스 접속 테스트
+curl -s -I http://localhost:5000/
+```
+
+### 🐳 Docker 이미지 관리
+
+#### 사용 가능한 이미지 확인
+```bash
+# STT 관련 이미지 목록
+docker images | grep -E "(stt|gpu)" | head -10
+
+# 권장 이미지: stt-model-stt-streaming:latest
+```
+
+#### 네트워크 설정
+```bash
+# 필요한 네트워크가 없는 경우
+docker network create stt-network
+
+# 네트워크 상태 확인
+docker network ls | grep stt
+```
+
+### ⚠️ 주의사항
+
+#### 작동하는 시스템 유지
+- **CUDNN 경고가 있어도 기능이 정상 작동하면 굳이 수정하지 말 것**
+- GPU 메모리와 STT 기능이 정상이면 경고 메시지는 무시 가능
+- 불필요한 시행착오로 작동하는 시스템을 망가뜨리지 말 것
+
+#### 올바른 문제 진단
+- WebSocket 끊김은 주로 클라이언트 측 재연결 로직
+- CUDNN 경고는 기능적 문제가 아닐 수 있음
+- 로그에서 실제 오류와 단순 경고를 구분할 것
+
+### 📊 정상 상태 확인 지표
+
+#### 시스템 헬스체크
+```bash
+# 모든 서비스가 healthy 상태인지 확인
+docker ps | grep healthy
+
+# GPU 메모리 사용량이 정상 범위인지 확인 (RTX 5090 기준)
+# - 총 사용량: ~22GB / 32GB (68% 사용률)
+# - vLLM: ~13GB, STT(Whisper): ~5GB, 임베딩: ~3GB
+```
+
+#### 기능 테스트
+- 웹 인터페이스 접속: http://localhost:5000
+- API 응답: `/api/config` 엔드포인트 정상 응답
+- GPU 감지: 설정에서 `"gpu": true` 확인
 
 ## 📋 API 엔드포인트
 

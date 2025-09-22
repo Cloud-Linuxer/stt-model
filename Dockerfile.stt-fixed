@@ -1,0 +1,54 @@
+# RTX 5090 Blackwell 지원 PyTorch 최신 버전
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
+
+# 비대화식 설치를 위한 환경 변수
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CUDA_VISIBLE_DEVICES=0
+ENV TORCH_CUDA_ARCH_LIST="9.0+PTX"
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# 시스템 업데이트 및 기본 패키지 설치
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    portaudio19-dev \
+    libsndfile1-dev \
+    ffmpeg \
+    sox \
+    libsox-fmt-all \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 패키지 업그레이드
+RUN pip install --upgrade pip setuptools wheel
+
+# STT 관련 패키지 설치
+RUN pip install \
+    faster-whisper==0.10.0 \
+    openai-whisper==20231117 \
+    flask==2.3.3 \
+    flask-sock==0.6.0 \
+    numpy==1.24.3 \
+    soundfile==0.12.1 \
+    requests==2.31.0 \
+    scipy==1.11.4
+
+# 작업 디렉토리 설정
+WORKDIR /app
+
+# 모델 디렉토리 생성
+RUN mkdir -p /app/models
+
+# 애플리케이션 파일 복사
+COPY web_server_streaming_final.py /app/
+COPY templates/ /app/templates/
+
+# 환경 변수 설정
+ENV VLLM_API_URL=http://vllm-server:8000/v1/completions
+
+# 포트 노출
+EXPOSE 5000
+
+# 컨테이너 실행 시 명령
+CMD ["python3", "web_server_streaming_final.py"]

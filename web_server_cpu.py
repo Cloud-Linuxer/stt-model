@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-STT + LLM 키워드 추출 통합 서버 - Final Fixed Version
-- VAD completely disabled for testing
-- Direct audio processing every 1 second
+STT + LLM 키워드 추출 통합 서버 - CPU Only Version
+- Forces CPU mode to avoid CUDNN issues
+- Stable operation without GPU dependencies
 """
 
 import json
@@ -20,6 +20,9 @@ import warnings
 import re
 warnings.filterwarnings("ignore")
 
+# Force CPU mode
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
 # 환경 변수
 VLLM_API_URL = os.getenv("VLLM_API_URL", "http://localhost:8000/v1/completions")
 
@@ -32,11 +35,11 @@ stt_processor = None
 keyword_extractor = None
 
 class StreamingSTT:
-    """스트리밍 STT 처리 - VAD 제거 버전"""
+    """스트리밍 STT 처리 - CPU Version"""
 
     def __init__(self):
         self.model = None
-        self.device = None
+        self.device = "cpu"
         self.audio_buffer = []
         self.process_interval = 16000  # 1초마다 처리 (16kHz)
 
@@ -47,38 +50,38 @@ class StreamingSTT:
         ]
 
     def load_model(self):
-        """모델 로드"""
-        print("🔄 Whisper 모델 로딩 중...")
+        """모델 로드 - CPU Only"""
+        print("🔄 Whisper 모델 로딩 중 (CPU)...")
 
-        if torch.cuda.is_available():
-            print(f"✅ GPU 감지됨: {torch.cuda.get_device_name(0)}")
-            device = "cuda"
-            compute_type = "float16"
-        else:
-            device = "cpu"
-            compute_type = "int8"
+        try:
+            self.model = WhisperModel(
+                "medium",
+                device="cpu",
+                compute_type="int8",
+                download_root="/app/models",
+                num_workers=1,
+                cpu_threads=4
+            )
 
-        self.model = WhisperModel(
-            "medium",
-            device=device,
-            device_index=0 if device == "cuda" else None,
-            compute_type=compute_type,
-            download_root="/app/models",
-            num_workers=1,
-            cpu_threads=0
-        )
-        print(f"✅ {device.upper()} 모델 로드 완료!")
-        self.device = device
-        return True
+            print("✅ CPU 모델 로드 완료!")
+            self.device = "cpu"
+            return True
+
+        except Exception as e:
+            print(f"❌ 모델 로드 실패: {e}")
+            return False
 
     def process_stream(self, audio_chunk):
-        """오디오 스트림 처리 - 무조건 버퍼에 추가"""
+        """오디오 스트림 처리"""
         if self.model is None:
             return None
 
         # 버퍼에 추가
         self.audio_buffer.extend(audio_chunk)
-        print(f"📊 Buffer size: {len(self.audio_buffer)}, Chunk mean: {np.mean(np.abs(audio_chunk)):.6f}")
+
+        # 디버그 로그 (매 10번째 청크만)
+        if len(self.audio_buffer) % 16000 == 0:
+            print(f"📊 Buffer: {len(self.audio_buffer)} samples")
 
         # 1초 이상 모이면 처리
         if len(self.audio_buffer) >= self.process_interval:
@@ -92,7 +95,7 @@ class StreamingSTT:
             self.audio_buffer = []
             return None
 
-        print(f"🎯 Processing {len(self.audio_buffer)} samples...")
+        print(f"🎯 Processing {len(self.audio_buffer)} samples (CPU)...")
 
         # 버퍼를 numpy 배열로 변환
         audio_data = np.array(self.audio_buffer, dtype=np.float32)
@@ -104,16 +107,18 @@ class StreamingSTT:
 
         # 임시 파일 저장
         temp_file = f"/tmp/audio_{time.time()}.wav"
-        sf.write(temp_file, audio_data, 16000)
 
         try:
-            # Whisper 처리
-            print("🔊 Running Whisper transcription...")
+            sf.write(temp_file, audio_data, 16000)
+
+            # Whisper 처리 (CPU optimized settings)
+            print("🔊 Running Whisper transcription (CPU)...")
+
             segments, info = self.model.transcribe(
                 temp_file,
                 language="ko",
-                beam_size=5,
-                best_of=5,
+                beam_size=3,  # CPU에 최적화된 값
+                best_of=3,
                 patience=1,
                 length_penalty=1,
                 temperature=[0.0],
@@ -122,7 +127,7 @@ class StreamingSTT:
                 no_speech_threshold=0.6,
                 condition_on_previous_text=False,
                 word_timestamps=False,
-                vad_filter=False  # VAD 필터 비활성화
+                vad_filter=False
             )
 
             # 전사 결과 수집
@@ -138,23 +143,28 @@ class StreamingSTT:
 
             if full_text:
                 result_text = " ".join(full_text)
-                print(f"✅ Transcription result: {result_text}")
+                print(f"✅ Transcription: {result_text}")
                 return {
                     "text": result_text,
                     "language": info.language if info else "ko",
-                    "timestamp": time.time()
+                    "timestamp": time.time(),
+                    "device": "cpu"
                 }
             else:
                 print("⚠️ No valid text from Whisper")
 
         except Exception as e:
             print(f"❌ Whisper 처리 오류: {e}")
+            # 버퍼 초기화
             self.audio_buffer = []
 
         finally:
             # 임시 파일 삭제
             if os.path.exists(temp_file):
-                os.remove(temp_file)
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
 
         return None
 
@@ -219,7 +229,7 @@ JSON 형식으로만 응답하세요.
                     return [k for k in keywords if k.get('importance', 0) >= self.min_importance]
 
         except Exception as e:
-            print(f"❌ LLM 키워드 추출 오류: {e}")
+            print(f"⚠️ LLM 키워드 추출 오류: {e}")
 
         return []
 
@@ -233,10 +243,10 @@ def websocket(ws):
     global stt_processor, keyword_extractor
 
     if stt_processor is None:
-        streaming_stt = StreamingSTT()
-        streaming_stt.load_model()
-    else:
-        streaming_stt = stt_processor
+        ws.send(json.dumps({"type": "error", "message": "Model not loaded"}))
+        return
+
+    streaming_stt = stt_processor
 
     if keyword_extractor is None:
         keyword_extractor = KeywordExtractor()
@@ -249,7 +259,7 @@ def websocket(ws):
     try:
         while connection_active:
             try:
-                message = ws.receive(timeout=30)  # 30초로 타임아웃 연장
+                message = ws.receive(timeout=1)
                 if message is None:
                     continue
 
@@ -264,8 +274,8 @@ def websocket(ws):
                         audio_array = np.frombuffer(audio_bytes, dtype=np.float32)
 
                         packet_count += 1
-                        if packet_count % 10 == 1:
-                            print(f"🎵 Audio packet #{packet_count}: size={len(audio_array)}, mean={np.mean(np.abs(audio_array)):.6f}")
+                        if packet_count % 100 == 1:
+                            print(f"🎵 Audio packet #{packet_count}: size={len(audio_array)}")
 
                         # 버퍼에 추가
                         audio_buffer.extend(audio_array)
@@ -292,7 +302,7 @@ def websocket(ws):
                                 }))
 
                     except Exception as e:
-                        print(f"❌ 오디오 처리 오류: {e}")
+                        print(f"⚠️ 오디오 처리 오류: {e}")
 
                 elif data.get('type') == 'config':
                     # 설정 메시지 처리
@@ -326,11 +336,12 @@ def get_config():
         "sample_rate": 16000,
         "language": "ko",
         "model": "medium",
-        "device": "cuda" if torch.cuda.is_available() else "cpu",
-        "gpu": torch.cuda.is_available(),
+        "device": "cpu",
+        "gpu": False,
         "llm_enabled": True,
         "mode": "streaming",
-        "buffer_mode": True
+        "buffer_mode": True,
+        "cpu_version": True
     })
 
 @app.route('/api/test-audio', methods=['POST'])
@@ -339,8 +350,7 @@ def test_audio():
     global stt_processor, keyword_extractor
 
     if stt_processor is None:
-        stt_processor = StreamingSTT()
-        stt_processor.load_model()
+        return jsonify({"error": "Model not loaded"}), 500
 
     if keyword_extractor is None:
         keyword_extractor = KeywordExtractor()
@@ -375,33 +385,57 @@ def test_audio():
         else:
             return jsonify({"error": "No transcription"}), 500
 
+    except Exception as e:
+        print(f"❌ Test audio error: {e}")
+        return jsonify({"error": str(e)}), 500
+
     finally:
         if os.path.exists(temp_path):
-            os.remove(temp_path)
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+
+@app.route('/api/health', methods=['GET'])
+def health():
+    """헬스 체크 엔드포인트"""
+    global stt_processor
+
+    status = {
+        "status": "healthy",
+        "model_loaded": stt_processor is not None,
+        "device": "cpu",
+        "gpu_available": False,
+        "cpu_only_version": True
+    }
+
+    return jsonify(status)
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("🎤 STT 스트리밍 서버 (Final Fixed - No VAD)")
+    print("🎤 STT 스트리밍 서버 (CPU Only Version)")
     print("="*60 + "\n")
 
-    if torch.cuda.is_available():
-        print(f"🖥️ GPU: {torch.cuda.get_device_name(0)}")
-        print(f"📊 GPU 메모리: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
-    else:
-        print("💻 CPU 모드로 실행")
+    print("💻 CPU 모드로 실행")
+    print("⚠️ GPU 비활성화 (CUDNN 문제 회피)")
 
     # 모델 미리 로드
     print("\n🚀 모델 초기화 중...")
     stt_processor = StreamingSTT()
-    stt_processor.load_model()
-    keyword_extractor = KeywordExtractor()
-    print("✅ 모델 준비 완료!\n")
+    if stt_processor.load_model():
+        keyword_extractor = KeywordExtractor()
+        print("✅ 모델 준비 완료!\n")
+    else:
+        print("❌ 모델 로드 실패\n")
+        stt_processor = None
+        exit(1)
 
     # 서버 시작
     print(f"🌐 서버 시작: http://localhost:5000")
-    print(f"🔇 VAD 비활성화 - 모든 오디오 처리")
+    print(f"💻 CPU Only Version - Stable Operation")
     print(f"🔌 WebSocket 엔드포인트: ws://localhost:5000/ws")
     print(f"🧪 테스트 엔드포인트: POST /api/test-audio")
+    print(f"❤️ 헬스 체크: GET /api/health")
     print("="*60 + "\n")
 
     app.run(host='0.0.0.0', port=5000, debug=False)

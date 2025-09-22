@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-STT + LLM 키워드 추출 통합 서버 - Final Fixed Version
-- VAD completely disabled for testing
-- Direct audio processing every 1 second
+STT + LLM 키워드 추출 통합 서버 (스트리밍 버전) - Fixed WebSocket
+- WebSocket audio format fix
+- Proper base64 decoding
+- Better error handling
 """
 
 import json
@@ -31,14 +32,33 @@ sock = Sock(app)
 stt_processor = None
 keyword_extractor = None
 
+class VoiceActivityDetector:
+    """민감한 VAD 구현"""
+
+    def __init__(self, sample_rate=16000):
+        self.sample_rate = sample_rate
+        self.energy_threshold = 0.001  # 매우 낮은 임계값
+        self.silence_duration = 0.8  # 침묵 감지 시간
+
+    def is_speech(self, audio_chunk):
+        """음성인지 판단"""
+        if len(audio_chunk) == 0:
+            return False
+        energy = np.sqrt(np.mean(np.square(audio_chunk)))
+        return energy > self.energy_threshold
+
 class StreamingSTT:
-    """스트리밍 STT 처리 - VAD 제거 버전"""
+    """스트리밍 STT 처리"""
 
     def __init__(self):
         self.model = None
         self.device = None
+        self.vad = VoiceActivityDetector()
         self.audio_buffer = []
-        self.process_interval = 16000  # 1초마다 처리 (16kHz)
+        self.silence_frames = 0
+        self.silence_threshold = 12  # 약 0.8초
+        self.min_speech_length = 4800  # 최소 0.3초
+        self.max_buffer_size = 160000  # 최대 10초
 
         # 할루시네이션 패턴
         self.hallucination_patterns = [
@@ -72,27 +92,37 @@ class StreamingSTT:
         return True
 
     def process_stream(self, audio_chunk):
-        """오디오 스트림 처리 - 무조건 버퍼에 추가"""
+        """오디오 스트림 처리"""
         if self.model is None:
             return None
 
-        # 버퍼에 추가
-        self.audio_buffer.extend(audio_chunk)
-        print(f"📊 Buffer size: {len(self.audio_buffer)}, Chunk mean: {np.mean(np.abs(audio_chunk)):.6f}")
+        # VAD 체크
+        is_speech = self.vad.is_speech(audio_chunk)
 
-        # 1초 이상 모이면 처리
-        if len(self.audio_buffer) >= self.process_interval:
-            return self._process_buffer()
+        if is_speech:
+            # 음성이 감지되면 버퍼에 추가
+            self.audio_buffer.extend(audio_chunk)
+            self.silence_frames = 0
+
+            # 버퍼 크기 제한
+            if len(self.audio_buffer) > self.max_buffer_size:
+                return self._process_buffer()
+
+        else:
+            # 침묵 카운트
+            self.silence_frames += 1
+
+            # 충분한 침묵이 감지되고 버퍼에 데이터가 있으면
+            if self.silence_frames > self.silence_threshold and len(self.audio_buffer) > self.min_speech_length:
+                return self._process_buffer()
 
         return None
 
     def _process_buffer(self):
         """버퍼 처리"""
-        if not self.audio_buffer or len(self.audio_buffer) < 4800:  # 최소 0.3초
+        if not self.audio_buffer or len(self.audio_buffer) < self.min_speech_length:
             self.audio_buffer = []
             return None
-
-        print(f"🎯 Processing {len(self.audio_buffer)} samples...")
 
         # 버퍼를 numpy 배열로 변환
         audio_data = np.array(self.audio_buffer, dtype=np.float32)
@@ -108,7 +138,6 @@ class StreamingSTT:
 
         try:
             # Whisper 처리
-            print("🔊 Running Whisper transcription...")
             segments, info = self.model.transcribe(
                 temp_file,
                 language="ko",
@@ -121,8 +150,7 @@ class StreamingSTT:
                 log_prob_threshold=-1.0,
                 no_speech_threshold=0.6,
                 condition_on_previous_text=False,
-                word_timestamps=False,
-                vad_filter=False  # VAD 필터 비활성화
+                word_timestamps=False
             )
 
             # 전사 결과 수집
@@ -131,21 +159,17 @@ class StreamingSTT:
                 text = segment.text.strip()
                 if text and not self._is_hallucination(text):
                     full_text.append(text)
-                    print(f"📝 Segment: {text}")
 
             # 버퍼 초기화
             self.audio_buffer = []
 
             if full_text:
                 result_text = " ".join(full_text)
-                print(f"✅ Transcription result: {result_text}")
                 return {
                     "text": result_text,
                     "language": info.language if info else "ko",
                     "timestamp": time.time()
                 }
-            else:
-                print("⚠️ No valid text from Whisper")
 
         except Exception as e:
             print(f"❌ Whisper 처리 오류: {e}")
@@ -244,12 +268,11 @@ def websocket(ws):
     audio_buffer = []
     process_chunk_size = 1600  # 100ms 단위로 처리
     connection_active = True
-    packet_count = 0
 
     try:
         while connection_active:
             try:
-                message = ws.receive(timeout=30)  # 30초로 타임아웃 연장
+                message = ws.receive(timeout=1)
                 if message is None:
                     continue
 
@@ -260,12 +283,12 @@ def websocket(ws):
                     try:
                         audio_bytes = base64.b64decode(data['data'])
 
-                        # Float32 배열로 변환
+                        # Float32 배열로 변환 (JavaScript에서 Float32Array로 전송됨)
                         audio_array = np.frombuffer(audio_bytes, dtype=np.float32)
 
-                        packet_count += 1
-                        if packet_count % 10 == 1:
-                            print(f"🎵 Audio packet #{packet_count}: size={len(audio_array)}, mean={np.mean(np.abs(audio_array)):.6f}")
+                        # 디버그: 오디오 데이터 수신 확인
+                        if len(audio_buffer) == 0:
+                            print(f"🎵 첫 오디오 데이터 수신! 크기: {len(audio_array)}, 평균: {np.mean(np.abs(audio_array)):.6f}")
 
                         # 버퍼에 추가
                         audio_buffer.extend(audio_array)
@@ -317,7 +340,7 @@ def websocket(ws):
 @app.route('/')
 def index():
     """메인 페이지"""
-    return render_template('index_keywords_scroll_fixed.html')
+    return render_template('index_keywords_scroll.html')
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
@@ -381,7 +404,7 @@ def test_audio():
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("🎤 STT 스트리밍 서버 (Final Fixed - No VAD)")
+    print("🎤 STT 스트리밍 서버 (WebSocket Fixed)")
     print("="*60 + "\n")
 
     if torch.cuda.is_available():
@@ -399,7 +422,7 @@ if __name__ == '__main__':
 
     # 서버 시작
     print(f"🌐 서버 시작: http://localhost:5000")
-    print(f"🔇 VAD 비활성화 - 모든 오디오 처리")
+    print(f"🔇 VAD 기반 음성 감지")
     print(f"🔌 WebSocket 엔드포인트: ws://localhost:5000/ws")
     print(f"🧪 테스트 엔드포인트: POST /api/test-audio")
     print("="*60 + "\n")

@@ -390,11 +390,13 @@
 - [⚠️] **STT WebSocket audio transmission** - Audio not being processed correctly
 
 ### 🐛 Current Issues
-1. **STT WebSocket Audio Issue**:
-   - WebSocket connects successfully
-   - Audio data received but not processed
-   - VAD (Voice Activity Detection) not detecting speech from test audio
-   - Need to fix audio format handling and VAD thresholds
+1. **STT WebSocket Audio Issue - PARTIALLY FIXED**:
+   - ✅ WebSocket connects successfully and receives config
+   - ✅ Audio data format fixed (base64 Float32Array decoding)
+   - ✅ VAD threshold lowered (0.001) for sensitive detection
+   - ⚠️ Test audio (sine waves) not triggering speech detection
+   - ⚠️ Need real Korean speech audio for proper testing
+   - ⚠️ Web interface recording still not producing transcriptions
 
 ### 📈 Next Phase Priorities
 - Fix STT WebSocket audio processing issue
