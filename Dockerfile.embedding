@@ -1,0 +1,57 @@
+# Embedding Service with BGE-M3 Model
+# Multilingual embeddings for Korean and English text
+
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_VISIBLE_DEVICES=0
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3.10-dev \
+    python3-pip \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Python 3.10 as default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+
+# Upgrade pip
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# Create app directory
+WORKDIR /app
+
+# Install PyTorch with CUDA support (lighter runtime version)
+RUN pip install torch==2.1.0 --index-url https://download.pytorch.org/whl/cu121
+
+# Install embedding libraries
+RUN pip install \
+    transformers==4.36.0 \
+    sentence-transformers==2.2.2 \
+    FlagEmbedding==1.2.5 \
+    flask==3.0.0 \
+    numpy==1.24.3 \
+    aiohttp==3.9.0 \
+    gunicorn==21.2.0
+
+# Create models directory
+RUN mkdir -p /app/models
+
+# Copy embedding service
+COPY embedding_service.py /app/
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=5 \
+    CMD curl -f http://localhost:8002/health || exit 1
+
+# Expose port
+EXPOSE 8002
+
+# Run with gunicorn for production
+CMD ["gunicorn", "--bind", "0.0.0.0:8002", "--workers", "2", "--worker-class", "sync", "--timeout", "120", "embedding_service:app"]

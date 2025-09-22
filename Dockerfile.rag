@@ -1,0 +1,48 @@
+# RAG Orchestrator Service
+# Core RAG logic for retrieval and generation
+
+FROM python:3.10-slim
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1
+ENV WORKERS=2
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Upgrade pip
+RUN pip install --upgrade pip setuptools wheel
+
+# Install Python dependencies
+RUN pip install \
+    fastapi==0.104.1 \
+    uvicorn==0.24.0 \
+    aiohttp==3.9.0 \
+    qdrant-client==1.7.0 \
+    redis==5.0.1 \
+    numpy==1.24.3 \
+    pydantic==2.5.0 \
+    httpx==0.25.2 \
+    tenacity==8.2.3 \
+    python-multipart==0.0.6
+
+# Create directories
+RUN mkdir -p /app/rag
+
+# Copy application files
+COPY rag/ /app/rag/
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=5 \
+    CMD curl -f http://localhost:8003/health || exit 1
+
+# Expose port
+EXPOSE 8003
+
+# Run with uvicorn
+CMD ["uvicorn", "rag.orchestrator:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2"]

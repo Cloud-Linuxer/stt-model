@@ -86,7 +86,7 @@ services:
     networks:
       - backend-net
       - data-net
-    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy lru
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
@@ -147,7 +147,7 @@ services:
               count: 1
               capabilities: [gpu]
         limits:
-          memory: 4G
+          memory: 8G
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
