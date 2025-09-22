@@ -1,22 +1,29 @@
 version: '3.8'
 
 services:
-  whisper:
-    build: .
-    container_name: whisper-large-v3
+  # ===========================
+  # Core Services (Profile: core)
+  # ===========================
+
+  # vLLM Server - Qwen2.5-7B for keyword extraction and response generation
+  vllm-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.vllm
+    container_name: vllm-server
+    profiles: ["core", "rag", "full"]
+    restart: unless-stopped
     ports:
-      - "5000:5000"  # Flask 웹 서버 포트
-      - "8766:8766"  # WebSocket 서버 포트
-    volumes:
-      - ./data:/app/data
-      - ./outputs:/app/outputs
-      - ./models:/app/models
-      - .:/app
+      - "8000:8000"
     environment:
-      - PYTHONUNBUFFERED=1
-      - WHISPER_CACHE_DIR=/app/models
       - CUDA_VISIBLE_DEVICES=0
-    # GPU support for NVIDIA
+      - HF_HOME=/app/models
+      - TRANSFORMERS_CACHE=/app/models
+    volumes:
+      - ./models:/app/models
+      - ./data/cache:/app/cache
+    networks:
+      - backend-net
     deploy:
       resources:
         reservations:
@@ -24,6 +31,314 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    stdin_open: true
-    tty: true
-    command: python test_faster_whisper.py
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # STT Streaming Server - Whisper Medium with VAD
+  stt-streaming:
+    build:
+      context: .
+      dockerfile: Dockerfile.stt
+    container_name: stt-streaming
+    profiles: ["core", "rag", "full"]
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - VLLM_API_URL=http://vllm-server:8000/v1/completions
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./models:/app/models
+      - .:/app
+    networks:
+      - backend-net
+      - frontend-net
+    depends_on:
+      vllm-server:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/config"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis - Caching layer
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    profiles: ["core", "rag", "full"]
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend-net
+      - data-net
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ===========================
+  # RAG Services (Profile: rag)
+  # ===========================
+
+  # Qdrant - Vector database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    profiles: ["rag", "full"]
+    restart: unless-stopped
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - backend-net
+      - data-net
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/collections"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Embedding Service - BGE-M3 for multilingual embeddings
+  embedding-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.embedding
+    container_name: embedding-service
+    profiles: ["rag", "full"]
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - MODEL_NAME=BAAI/bge-m3
+      - HF_HOME=/app/models
+    volumes:
+      - ./models:/app/models
+    networks:
+      - backend-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # RAG Orchestrator - Core RAG logic
+  rag-orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.rag
+    container_name: rag-orchestrator
+    profiles: ["rag", "full"]
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - VLLM_URL=http://vllm-server:8000
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379
+      - EMBEDDING_URL=http://embedding-service:8002
+      - PYTHONUNBUFFERED=1
+    networks:
+      - backend-net
+    depends_on:
+      - vllm-server
+      - qdrant
+      - redis
+      - embedding-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ===========================
+  # Full Stack Services (Profile: full)
+  # ===========================
+
+  # MongoDB - Document metadata storage
+  mongodb:
+    image: mongo:6
+    container_name: mongodb
+    profiles: ["full"]
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin123
+      - MONGO_INITDB_DATABASE=rag_system
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - data-net
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Document Processor - Document ingestion and chunking
+  document-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.processor
+    container_name: document-processor
+    profiles: ["full"]
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - MONGODB_URL=mongodb://admin:admin123@mongodb:27017
+      - EMBEDDING_URL=http://embedding-service:8002
+      - QDRANT_URL=http://qdrant:6333
+      - CHUNK_SIZE=512
+      - CHUNK_OVERLAP=50
+    volumes:
+      - ./data/documents:/app/documents
+    networks:
+      - backend-net
+      - data-net
+    depends_on:
+      - mongodb
+      - embedding-service
+      - qdrant
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # API Gateway - Central API management
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: api-gateway
+    profiles: ["full"]
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - STT_URL=http://stt-streaming:5000
+      - RAG_URL=http://rag-orchestrator:8003
+      - VLLM_URL=http://vllm-server:8000
+    networks:
+      - frontend-net
+      - backend-net
+    depends_on:
+      - stt-streaming
+      - rag-orchestrator
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Web UI - Enhanced frontend
+  web-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.webui
+    container_name: web-ui
+    profiles: ["full"]
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://api-gateway:8080
+      - REACT_APP_WS_URL=ws://stt-streaming:5000/ws
+    networks:
+      - frontend-net
+    depends_on:
+      - api-gateway
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Nginx - Load balancer and reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    profiles: ["full"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/ssl:/etc/nginx/ssl:ro
+    networks:
+      - frontend-net
+    depends_on:
+      - web-ui
+      - api-gateway
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+# ===========================
+# Networks
+# ===========================
+networks:
+  frontend-net:
+    driver: bridge
+    name: rag_frontend
+  backend-net:
+    driver: bridge
+    name: rag_backend
+  data-net:
+    driver: bridge
+    name: rag_data
+
+# ===========================
+# Volumes
+# ===========================
+volumes:
+  redis_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  mongodb_data:
+    driver: local
+  models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./models
