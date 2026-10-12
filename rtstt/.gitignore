@@ -1,0 +1,14 @@
+# large / third-party artifacts — download per README
+models/
+.venvs/
+__pycache__/
+# benchmark audio (YouTube clips are copyrighted) and run outputs
+bench/data/*.wav
+bench/data_yt/
+bench/results/
+bench/results_mt/
+bench/data_fleurs/
+bench/results_fleurs/
+bench/data_fleurs_stream/
+bench/data_yt2/
+bench/data_turns/

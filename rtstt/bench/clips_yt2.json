@@ -1,0 +1,23 @@
+{
+ "_comment": "YouTube set 2 for make_youtube_set.py --clips. clips: name -> [video id, language, translation target or null, start s, end s]. mix: [speaker, video id, language, start, end, skip ranges]. The interview (Pb3hXSrU4xQ) has two voices; the host's cues (marked '- ' in the subtitles) are excluded from speaker D.",
+ "clips": {
+  "yt2_ko_med_diabetes": ["0PZkxmOhvu0", "ko", "en", 15, 255],
+  "yt2_ko_med_psych": ["kYY3ZXMOFuI", "ko", "en", 15, 255],
+  "yt2_ko_talk_econ": ["Khb2_U0_jvM", "ko", null, 20, 260],
+  "yt2_ko_behav_econ": ["TJeAhO3cYCs", "ko", null, 15, 255],
+  "yt2_ko_cook_recipe": ["mZSfj42pz34", "ko", null, 10, 250],
+  "yt2_ko_tech_app": ["m3lCjmvWjus", "ko", null, 10, 250],
+  "yt2_ko_cook_10": ["v-p-v7w8700", "ko", null, 15, 255],
+  "yt2_en_speech_jobs": ["1i9kcBHX2Nw", "en", "ko", 20, 260],
+  "yt2_en_interview_hv": ["Pb3hXSrU4xQ", "en", null, 20, 260],
+  "yt2_en_cook_british": ["DkHQcXLVSUU", "en", null, 5, 176],
+  "yt2_en_ted_meaning": ["y9Trdafp83U", "en", "ko", 12, 252]
+ },
+ "mix": [
+  ["A", "0PZkxmOhvu0", "ko", 15, 140],
+  ["B", "Khb2_U0_jvM", "ko", 20, 140],
+  ["C", "TJeAhO3cYCs", "ko", 15, 140],
+  ["D", "Pb3hXSrU4xQ", "en", 20, 140, [[15, 31.58], [65.71, 68.0], [78.38, 82.71], [123.12, 131.83]]],
+  ["E", "DkHQcXLVSUU", "en", 5, 120]
+ ]
+}

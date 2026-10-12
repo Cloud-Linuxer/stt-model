@@ -1,0 +1,71 @@
+{
+ "name": "mix_3spk",
+ "duration": 43.264375,
+ "num_speakers": 3,
+ "utterances": [
+  {
+   "speaker": "A",
+   "lang": "ko",
+   "text": "오늘 회의에서는 신규 결제 단말기 도입 일정을 논의하겠습니다.",
+   "ref_translation": "In today's meeting, we will discuss the schedule for introducing the new payment terminals.",
+   "start": 0.5,
+   "end": 4.925
+  },
+  {
+   "speaker": "C",
+   "lang": "en",
+   "text": "Thanks. Our engineering team can deliver the firmware update by the end of next month.",
+   "ref_translation": "감사합니다. 저희 엔지니어링 팀은 다음 달 말까지 펌웨어 업데이트를 제공할 수 있습니다.",
+   "start": 5.628,
+   "end": 11.023
+  },
+  {
+   "speaker": "B",
+   "lang": "ko",
+   "text": "그럼 시범 매장은 강남점과 판교점 두 곳으로 하면 될 것 같아요.",
+   "ref_translation": "Then I think we can use two stores, Gangnam and Pangyo, as pilot stores.",
+   "start": 12.095,
+   "end": 16.352
+  },
+  {
+   "speaker": "C",
+   "lang": "en",
+   "text": "That works for us. We will need remote access to both stores for testing.",
+   "ref_translation": "저희는 괜찮습니다. 테스트를 위해 두 매장 모두 원격 접속이 필요합니다.",
+   "start": 16.849,
+   "end": 21.639
+  },
+  {
+   "speaker": "A",
+   "lang": "ko",
+   "text": "원격 접속 권한은 보안팀 승인을 받아서 다음 주 화요일까지 드리겠습니다.",
+   "ref_translation": "We will get approval from the security team and give you remote access by next Tuesday.",
+   "start": 22.654,
+   "end": 27.773
+  },
+  {
+   "speaker": "B",
+   "lang": "ko",
+   "text": "결제 수수료 정산 방식도 미리 정리해 두는 게 좋겠습니다.",
+   "ref_translation": "It would be good to sort out the payment fee settlement method in advance.",
+   "start": 28.544,
+   "end": 32.452
+  },
+  {
+   "speaker": "C",
+   "lang": "en",
+   "text": "Agreed. I'll send a draft proposal by Friday.",
+   "ref_translation": "동의합니다. 금요일까지 초안 제안서를 보내드리겠습니다.",
+   "start": 32.715,
+   "end": 36.399
+  },
+  {
+   "speaker": "A",
+   "lang": "ko",
+   "text": "좋습니다. 그럼 오늘 회의는 여기서 마치겠습니다.",
+   "ref_translation": "Good. Then let's end today's meeting here.",
+   "start": 37.333,
+   "end": 41.636
+  }
+ ]
+}

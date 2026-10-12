@@ -1,0 +1,87 @@
+{
+ "name": "ko_2spk_samegender",
+ "duration": 55.455,
+ "num_speakers": 2,
+ "utterances": [
+  {
+   "speaker": "A",
+   "lang": "ko",
+   "text": "안녕하세요, 테이블오더 고객센터입니다. 무엇을 도와드릴까요?",
+   "ref_translation": "Hello, this is the Table Order customer center. How can I help you?",
+   "start": 0.5,
+   "end": 6.521
+  },
+  {
+   "speaker": "B",
+   "lang": "ko",
+   "text": "네, 매장에 있는 태블릿이 와이파이에 연결이 안 돼요.",
+   "ref_translation": "Yes, the tablet in our store won't connect to Wi-Fi.",
+   "start": 7.634,
+   "end": 11.567
+  },
+  {
+   "speaker": "A",
+   "lang": "ko",
+   "text": "불편을 드려 죄송합니다. 혹시 공유기를 최근에 교체하셨나요?",
+   "ref_translation": "Sorry for the inconvenience. Did you recently replace your router?",
+   "start": 12.296,
+   "end": 17.65
+  },
+  {
+   "speaker": "B",
+   "lang": "ko",
+   "text": "아니요, 어제까지는 잘 됐는데 오늘 아침부터 안 돼요.",
+   "ref_translation": "No, it worked fine until yesterday, but it stopped working this morning.",
+   "start": 18.167,
+   "end": 22.414
+  },
+  {
+   "speaker": "A",
+   "lang": "ko",
+   "text": "그러면 관리자 메뉴에 들어가셔서 네트워크 설정을 한 번 확인해 주시겠어요?",
+   "ref_translation": "Then could you go into the admin menu and check the network settings?",
+   "start": 23.382,
+   "end": 27.987
+  },
+  {
+   "speaker": "B",
+   "lang": "ko",
+   "text": "관리자 비밀번호가 기억이 안 나는데 어떻게 하죠?",
+   "ref_translation": "I can't remember the admin password, what should I do?",
+   "start": 28.824,
+   "end": 32.545
+  },
+  {
+   "speaker": "A",
+   "lang": "ko",
+   "text": "사업자 등록번호 뒷자리 네 자리를 입력하시면 됩니다.",
+   "ref_translation": "You can enter the last four digits of your business registration number.",
+   "start": 33.033,
+   "end": 36.459
+  },
+  {
+   "speaker": "B",
+   "lang": "ko",
+   "text": "아, 들어가졌어요. 와이파이 목록에 저희 매장 이름이 안 보여요.",
+   "ref_translation": "Oh, I'm in. I don't see our store's name in the Wi-Fi list.",
+   "start": 37.574,
+   "end": 42.968
+  },
+  {
+   "speaker": "A",
+   "lang": "ko",
+   "text": "공유기 전원을 껐다가 삼십 초 후에 다시 켜 주세요.",
+   "ref_translation": "Please turn off the router and turn it back on after thirty seconds.",
+   "start": 44.151,
+   "end": 47.495
+  },
+  {
+   "speaker": "B",
+   "lang": "ko",
+   "text": "네, 다시 켰더니 이제 연결됐습니다. 감사합니다.",
+   "ref_translation": "Okay, I turned it back on and it's connected now. Thank you.",
+   "start": 48.515,
+   "end": 53.348
+  }
+ ]
+}

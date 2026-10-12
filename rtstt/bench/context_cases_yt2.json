@@ -1,0 +1,129 @@
+{
+ "yt2_ko_med_diabetes": {
+  "dir": "data_yt2",
+  "hints": [
+   "ko"
+  ],
+  "translation": {
+   "type": "one_way",
+   "target_language": "en"
+  },
+  "context": {
+   "terms": [
+    "당화혈색소",
+    "당뇨",
+    "닥터딩요"
+   ],
+   "use_title": true,
+   "use_description": true,
+   "translation_terms": [
+    {
+     "source": "당화혈색소",
+     "target": "HbA1c"
+    }
+   ]
+  }
+ },
+ "yt2_ko_behav_econ": {
+  "dir": "data_yt2",
+  "hints": [
+   "ko"
+  ],
+  "translation": {
+   "type": "one_way",
+   "target_language": "en"
+  },
+  "context": {
+   "terms": [
+    "매몰비용 효과",
+    "행동경제학"
+   ],
+   "use_title": true,
+   "use_description": true
+  }
+ },
+ "yt2_ko_tech_app": {
+  "dir": "data_yt2",
+  "hints": [
+   "ko"
+  ],
+  "translation": {
+   "type": "one_way",
+   "target_language": "en"
+  },
+  "context": {
+   "terms": [
+    "링고튜브",
+    "영어자막",
+    "한글자막",
+    "유튜브"
+   ],
+   "use_title": true,
+   "use_description": true
+  }
+ },
+ "yt2_ko_talk_econ": {
+  "dir": "data_yt2",
+  "hints": [
+   "ko"
+  ],
+  "translation": {
+   "type": "one_way",
+   "target_language": "en"
+  },
+  "context": {
+   "terms": [
+    "김광석",
+    "한양대학교",
+    "세바시",
+    "돈 공부"
+   ],
+   "use_title": true,
+   "use_description": true
+  }
+ },
+ "yt2_en_interview_hv": {
+  "dir": "data_yt2",
+  "hints": [
+   "en"
+  ],
+  "translation": {
+   "type": "one_way",
+   "target_language": "ko"
+  },
+  "context": {
+   "terms": [
+    "Breanne Kisselstein",
+    "Cued Speech",
+    "Hands & Voices",
+    "transliteration"
+   ],
+   "use_title": true,
+   "use_description": true
+  }
+ },
+ "yt2_en_speech_jobs": {
+  "dir": "data_yt2",
+  "hints": [
+   "en"
+  ],
+  "translation": {
+   "type": "one_way",
+   "target_language": "ko"
+  },
+  "context": {
+   "terms": [
+    "Steve Jobs",
+    "Stanford"
+   ],
+   "use_title": true,
+   "use_description": true,
+   "translation_terms": [
+    {
+     "source": "Stanford",
+     "target": "스탠퍼드"
+    }
+   ]
+  }
+ }
+}
